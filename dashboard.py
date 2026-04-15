@@ -1,29 +1,31 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 
-# --- Page Configurations Setup ---
-st.set_page_config(page_title="PakWheels Data Dashboard", layout="wide",)
+# --- Page Config ---
+st.set_page_config(page_title="PakWheels EDA Dashboard", layout="wide")
 
-# Custom CSS for Beautiful UI
+# --- Custom CSS ---
 st.markdown("""
     <style>
     .main {background-color: #f8f9fa;}
     div[data-testid="metric-container"] {
-        background-color: #ffffff; 
-        padding: 15px; 
-        border-radius: 10px; 
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+        background-color: #1e3a5f;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.15);
     }
     div[data-testid="metric-container"] label {
-        color: #6b7280 !important; /* Muted gray for the label */
+        color: #93c5fd !important;
+        font-size: 14px;
     }
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
-        color: #111827 !important; /* Dark black for the actual number */
+        color: #ffffff !important;
+        font-size: 26px;
+        font-weight: bold;
     }
     h1, h2, h3 {color: #1f2937;}
     </style>
@@ -32,159 +34,165 @@ st.markdown("""
 # --- Data Loading ---
 @st.cache_data
 def load_data():
-    file_path = "data/pakwheels_cars_processed.csv"
+    processed_path = "data/pakwheels_cars_processed.csv"
     raw_path = "data/pakwheels_cars_raw.csv"
-    
-    df = pd.read_csv(file_path) if os.path.exists(file_path) else None
-    
-    # We load raw data just to calculate missing values for the EDA report
+    df = pd.read_csv(processed_path) if os.path.exists(processed_path) else None
     raw_df = pd.read_csv(raw_path) if os.path.exists(raw_path) else None
-    
     return df, raw_df
 
 df, raw_df = load_data()
 
 if df is None:
-    st.error("🚨 Processed Data file not found! Please run `pakwheels_data_engineering.py`.")
+    st.error("Processed data not found. Please run pakwheels_data_engineering.py first.")
     st.stop()
 
-# --- Dashboard Header ---
-st.title("Exploratory Data Analysis (EDA) Dashboard")
-st.markdown("Automated Analysis & Visualizations for the Data Mining Project Dataset")
+# --- Header ---
+st.title("PakWheels EDA Dashboard")
+st.markdown("Automated Exploratory Data Analysis for the Data Mining Project — ANN Ready Dataset")
 st.markdown("---")
 
-# --- Key Performance Indicators (KPIs) ---
+# --- 1. Dataset Overview ---
 st.header("1. Dataset Overview")
+
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric(label="Total Vehicles Processed", value=f"{len(df):,}")
+    st.metric("Total Records", f"{len(df):,}")
 with col2:
-    avg_price = df['price'].mean() if 'price' in df.columns else 0
-    st.metric(label="Avg. Price (PKR)", value=f"{int(avg_price):,}" if avg_price else "N/A")
+    if 'price' in df.columns:
+        st.metric("Avg. Price (PKR)", f"{int(df['price'].mean()):,}")
+    else:
+        st.metric("Avg. Price (PKR)", "Not Available")
 with col3:
-    avg_mileage = df['mileage_km'].mean() if 'mileage_km' in df.columns else 0
-    st.metric(label="Average Mileage (km)", value=f"{int(avg_mileage):,}" if avg_mileage else "N/A")
+    # mileage_km may be named differently - detect it
+    mileage_col = next((c for c in ['mileage_km', 'mileage', 'Mileage'] if c in df.columns), None)
+    if mileage_col:
+        st.metric("Avg. Mileage (km)", f"{int(df[mileage_col].mean()):,}")
+    else:
+        st.metric("Avg. Mileage (km)", "In Progress...")
 with col4:
-    avg_age = df['car_age'].mean() if 'car_age' in df.columns else 0
-    st.metric(label="Average Car Age", value=f"{round(avg_age, 1)} Years" if avg_age else "N/A")
+    if 'car_age' in df.columns:
+        st.metric("Avg. Car Age", f"{round(df['car_age'].mean(), 1)} Years")
+    elif 'year' in df.columns:
+        avg_age = 2024 - df['year'].mean()
+        st.metric("Avg. Car Age", f"{round(avg_age, 1)} Years")
+    else:
+        st.metric("Avg. Car Age", "In progress...")
 
 st.markdown("---")
 
-# --- Visualizations ---
-col_charts1, col_charts2 = st.columns(2)
+# --- 2. Price Distribution & Year vs Price ---
+st.header("2. Price Analysis")
+col_p1, col_p2 = st.columns(2)
 
-with col_charts1:
-    st.subheader("Distribution of Car Prices")
+with col_p1:
+    st.subheader("Price Distribution")
     if 'price' in df.columns:
-        fig_price = px.histogram(df, x='price', nbins=50, title="Price Range Frequency", 
-                                 color_discrete_sequence=['#3b82f6'])
-        fig_price.update_xaxes(title="Price (PKR)")
-        st.plotly_chart(fig_price, use_container_width=True)
-    else:
-        st.warning("Price column missing.")
+        fig = px.histogram(df, x='price', nbins=60,
+                           title="Price Range Frequency (After Outlier Removal)",
+                           color_discrete_sequence=['#3b82f6'])
+        fig.update_xaxes(title="Price (PKR)")
+        fig.update_yaxes(title="Number of Cars")
+        st.plotly_chart(fig, use_container_width=True)
 
-with col_charts2:
+with col_p2:
     st.subheader("Price vs. Manufacturing Year")
     if 'year' in df.columns and 'price' in df.columns:
-        fuel_col = 'fuel_type' if 'fuel_type' in df.columns else None
-        hover_cols = ["title", "price"] if "title" in df.columns else None
-        fig_year = px.scatter(df, x="year", y="price", color=fuel_col, title="Correlation: Year & Price",
-                              opacity=0.6, hover_data=hover_cols)
-        st.plotly_chart(fig_year, use_container_width=True)
-    else:
-        st.warning("Year or Price column missing.")
+        color_col = 'fuel_type' if 'fuel_type' in df.columns else None
+        fig2 = px.scatter(df, x="year", y="price", color=color_col,
+                          opacity=0.6, title="Year vs. Price Scatter")
+        st.plotly_chart(fig2, use_container_width=True)
 
 st.markdown("---")
 
-col_charts3, col_charts4 = st.columns(2)
+# --- 3. Market Breakdown ---
+st.header("3. Market Breakdown")
+col_m1, col_m2 = st.columns(2)
 
-with col_charts3:
-    st.subheader("Top Brands in Dataset")
-    if 'brand_clean' in df.columns:
-        brand_counts = df['brand_clean'].value_counts().reset_index()
+with col_m1:
+    st.subheader("Brand Market Share")
+    brand_col = 'brand_clean' if 'brand_clean' in df.columns else ('brand' if 'brand' in df.columns else None)
+    if brand_col:
+        brand_counts = df[brand_col].value_counts().reset_index()
         brand_counts.columns = ['Brand', 'Count']
-        fig_brands = px.bar(brand_counts, x='Brand', y='Count', title="Market Share",
-                            color='Count', color_continuous_scale="Blues")
-        st.plotly_chart(fig_brands, use_container_width=True)
+        fig3 = px.bar(brand_counts, x='Brand', y='Count',
+                      title="Vehicles Per Brand",
+                      color='Count', color_continuous_scale="Blues")
+        st.plotly_chart(fig3, use_container_width=True)
     else:
-        st.warning("Brand column missing for this plot.")
+        st.info("Brand column not found.")
 
-with col_charts4:
-    st.subheader("Transmission Type Distribution")
+with col_m2:
+    st.subheader("Transmission Distribution")
     if 'transmission' in df.columns:
-        fig_trans = px.pie(df, names='transmission', title="Automatic vs Manual", hole=0.4, 
-                           color_discrete_sequence=px.colors.sequential.Teal)
-        st.plotly_chart(fig_trans, use_container_width=True)
+        fig4 = px.pie(df, names='transmission', title="Automatic vs Manual",
+                      hole=0.4, color_discrete_sequence=px.colors.sequential.Teal)
+        st.plotly_chart(fig4, use_container_width=True)
     else:
-        st.warning("Transmission column missing.")
+        st.info("Transmission column not found.")
 
 st.markdown("---")
 
-st.header("2. Missing Value (NA) Resolution Report")
-st.markdown("A crucial part of Exploratory Data Analysis (EDA) is handling `NaN` and `null` values. The engineering pipeline mathematically resolves missing vehicle properties to prevent Artificial Neural Network (ANN) breakage.")
+# --- 4. Missing Value Report ---
+st.header("4. Missing Value (NA) Resolution Report")
+st.markdown("A required step in EDA: identifying, imputing, and validating missing data before ANN training.")
 
 if raw_df is not None:
     col_na1, col_na2 = st.columns(2)
+
     with col_na1:
-        st.subheader("⚠️ Missing Values (Before Processing)")
-        
-        # Calculate NAs in raw dataset
-        raw_na_counts = raw_df.isna().sum()
-        # Add "Unknown" counts as missing
+        st.subheader("Before Processing (Raw Data)")
+        raw_na = raw_df.isna().sum()
         for col in raw_df.columns:
-            raw_na_counts[col] += (raw_df[col] == "Unknown").sum()
-            
-        raw_na_counts = raw_na_counts[raw_na_counts > 0].reset_index()
-        raw_na_counts.columns = ['Feature', 'Missing Count']
-        
-        if not raw_na_counts.empty:
-            fig_raw_na = px.bar(raw_na_counts, x='Feature', y='Missing Count', 
-                                title="Missing Data Profile (Raw Dataset)", color_discrete_sequence=['#ef4444'])
-            st.plotly_chart(fig_raw_na, use_container_width=True)
+            raw_na[col] += (raw_df[col].astype(str) == "Unknown").sum()
+        raw_na = raw_na[raw_na > 0].reset_index()
+        raw_na.columns = ['Feature', 'Missing Count']
+        if not raw_na.empty:
+            fig5 = px.bar(raw_na, x='Feature', y='Missing Count',
+                          title="Missing Values Per Feature (Raw)",
+                          color_discrete_sequence=['#ef4444'])
+            st.plotly_chart(fig5, use_container_width=True)
         else:
-            st.success("Wow! No missing values in the raw dataset.")
-            
+            st.success("No missing values detected in the raw dataset.")
+
     with col_na2:
-        st.subheader("✅ Missing Values (After Statistical Imputation)")
+        st.subheader("After Statistical Imputation (Processed Data)")
         st.markdown("""
-        **Imputation Logic Applied:**
-        - **Numerical NA (Mileage, CC):** Imputed using the **Median** to prevent extreme outliers skewing results.
-        - **Categorical NA (Body, Color):** Imputed using the **Mode** (Most Frequent Attribute).
-        - **Target NA (Price):** Dropped strictly (Cannot guess target variable).
+        **Imputation strategy applied:**
+        - **Numerical (Mileage, Engine CC):** Filled using **Median** — robust against outliers.
+        - **Categorical (Body Type, Fuel, Color):** Filled using **Mode** — most frequent value.
+        - **Target Variable (Price):** Rows with missing price are **dropped strictly**.
         """)
-        
-        processed_na_counts = df.isna().sum().reset_index()
-        processed_na_counts.columns = ['Feature', 'Missing Count']
-        processed_na_counts = processed_na_counts[processed_na_counts['Missing Count'] > 0]
-        
-        if not processed_na_counts.empty:
-            fig_proc_na = px.bar(processed_na_counts, x='Feature', y='Missing Count', 
-                                title="Remaining NAs (Processed Dataset)", color_discrete_sequence=['#10b981'])
-            st.plotly_chart(fig_proc_na, use_container_width=True)
+        proc_na = df.isna().sum().reset_index()
+        proc_na.columns = ['Feature', 'Missing Count']
+        proc_na = proc_na[proc_na['Missing Count'] > 0]
+        if not proc_na.empty:
+            fig6 = px.bar(proc_na, x='Feature', y='Missing Count',
+                          title="Remaining NAs After Processing",
+                          color_discrete_sequence=['#10b981'])
+            st.plotly_chart(fig6, use_container_width=True)
         else:
-            st.info("🎯 **0 Missing Values!** The dataset is 100% complete and perfect for Neural Network ingestion.")
+            st.success("0 Missing Values. The dataset is mathematically complete and ready for ANN.")
 else:
-    st.warning("Raw dataset file not found. Could not generate missing values report.")
+    st.warning("Raw data file not found. Cannot generate missing values comparison.")
 
 st.markdown("---")
 
-# --- Mathematical Correlation Matrix (Crucial for ANN) ---
-st.header("3. Feature Correlation (Mathematical Analysis)")
-st.markdown("This heatmap determines which numerical features have the highest impact on **Price**, allowing optimal ANN feature selection.")
+# --- 5. Feature Correlation Heatmap ---
+st.header("5. Feature Correlation Matrix")
+st.markdown("This heatmap reveals mathematical relationships between numerical features and the target (Price). High correlation = high predictive power in the ANN.")
 
-# Select only numerical columns for the heatmap
-numerical_df = df.select_dtypes(include=['float64', 'int64', 'int32'])
-if not numerical_df.empty:
-    fig, ax = plt.subplots(figsize=(10, 6))
-    correlation_matrix = numerical_df.corr()
-    sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", fmt=".2f", ax=ax, linewidths=0.5)
-    st.pyplot(fig)
+numeric_df = df.select_dtypes(include=['float64', 'int64', 'int32'])
+if not numeric_df.empty:
+    fig_h, ax = plt.subplots(figsize=(12, 7))
+    sns.heatmap(numeric_df.corr(), annot=True, cmap="coolwarm",
+                fmt=".2f", ax=ax, linewidths=0.5)
+    st.pyplot(fig_h)
 else:
-    st.error("No numerical columns found for correlation.")
+    st.warning("No numerical columns available for correlation.")
 
 st.markdown("---")
 
-# --- Raw Data Inspector ---
-st.header("3. Processed Data Inspector")
-st.markdown("Explore the raw matrix before it is passed to the Neural Network.")
+# --- 6. Processed Data Inspector ---
+st.header("6. Processed Dataset Inspector")
+st.markdown(f"Showing the first 100 rows of the **{len(df):,}** fully cleaned and engineered records ready for the ANN model.")
 st.dataframe(df.head(100), use_container_width=True)
